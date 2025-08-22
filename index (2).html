@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>保健食品初級工程師｜歷屆試題線上練習</title>
+    <!-- Tailwind（CDN）讓樣式看起來接近你原本設計 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-50">
+    <div id="root"></div>
+    <noscript>本頁需要啟用 JavaScript 才能使用。</noscript>
+
+    <!-- 必要函式庫（CDN） -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+    <!-- 你的 App：以「單一 HTML」就能跑，方便拖上 Netlify Drop / GitHub Pages / Vercel 靜態部署 -->
+    <script type="text/babel" data-presets="env,react">
+      const { useState, useEffect, useMemo, useRef } = React;
+      const PapaLib = window.Papa; // Papaparse (CDN)
+      const FileSaver = window.FileSaver || { saveAs: window.saveAs }; // FileSaver (CDN)
+
+      // ==== 小工具 ====
+      const LS_KEY = "hf-beginner-exam-app-v1";
+      const serialize = (data) => JSON.stringify(data);
+      const deserialize = (s) => (s ? JSON.parse(s) : null);
+      const deBOM = (s) => (typeof s === "string" ? s.replace(/^\uFEFF/, "") : s);
+      const normalizeKeys = (raw) => {
+        const out = {};
+        Object.entries(raw || {}).forEach(([k, v]) => {
+          const nk = deBOM(String(k)).trim();
+          out[nk] = v;
+        });
+        return out;
+      };
+      const pick = (obj, keys) => {
+        for (const k of keys) {
+          if (obj[k] != null && obj[k] !== "") return obj[k];
+        }
+        return undefined;
+      };
+      const shuffle = (arr) => {
+        const copy = [...arr];
+        for (let i = copy.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [copy[i], copy[j]] = [copy[j], copy[i]];
+        }
+        return copy;
+      };
+      const fmtTime = (s) => {
+        const mm = Math.floor(s / 60).toString().padStart(2, "0");
+        const ss = Math.floor(s % 60).toString().padStart(2, "0");
+        return `${mm}:${ss}`;
+      };
+
+      // ==== 型別說明（註解）====
+      // Correction: { 年度: string, 場次?: string, 科目: string, 題號: number, 正確答案: string }
+      // QA: { id, year, date, subject, question_no, question, option_A..D, options[], correct_answers, notes }
+
+      const rowToQA = (row) => {
+        const r = normalizeKeys(row);
+        const year = (pick(r, ["year", "年度", "年份"]) ?? "").toString().trim();
+        const subject = (pick(r, ["subject", "科目"]) ?? "").toString().trim();
+        const question_no = (pick(r, ["question_no", "題號", "題目編號", "no", "id"]) ?? "").toString().trim();
+        const question = (pick(r, ["question", "題目", "stem"]) ?? "").toString().trim();
+        const option_A = (pick(r, ["option_A", "A", "選項A"]) ?? "").toString();
+        const option_B = (pick(r, ["option_B", "B", "選項B"]) ?? "").toString();
+        const option_C = (pick(r, ["option_C", "C", "選項C"]) ?? "").toString();
+        const option_D = (pick(r, ["option_D", "D", "選項D"]) ?? "").toString();
+        const correct_answers = (pick(r, ["correct_answers", "正確答案", "answer"]) ?? "").toString().replace(/\s/g, "");
+        const notes = (pick(r, ["notes", "備註"]) ?? "").toString();
+        const date = (pick(r, ["date", "日期"]) ?? "").toString();
+        const session = (pick(r, ["session", "場次"]) ?? "").toString().trim();
+        // 讓不同場次/日期的同年同科目同題號不會被當成重複題而合併
+        const salt = (date || session || (question ? String(question).slice(0, 20).replace(/\s+/g, "") : ""));
+        const id = `${year || ""}-${salt}-${subject || ""}-${question_no || ""}`;
+        const opts = ["A", "B", "C", "D"].map((k) => ({
+          key: k,
+          text: (
+            pick(
+              { option_A, option_B, option_C, option_D },
+              [k === "A" ? "option_A" : k === "B" ? "option_B" : k === "C" ? "option_C" : "option_D"]
+            ) || ""
+          )
+            .toString()
+            .trim(),
+        }));
+        return { id, year, date, subject, question_no, question, option_A, option_B, option_C, option_D, options: opts, correct_answers, notes };
+      };
+
+      const safeSaveAs = (blob, filename) => {
+        try {
+          const fn = (FileSaver && (FileSaver.saveAs || FileSaver.default)) || window.saveAs;
+          if (typeof fn === "function") { fn(blob, filename); return; }
+        } catch (e) {}
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      };
+
+      const exportCSV = (rows, filename = "export.csv") => {
+        const csv = PapaLib.unparse(rows);
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+        safeSaveAs(blob, filename);
+      };
+
+      const SAMPLE_ROWS = [
+        { year: 114, date: "2025-04-19", subject: "食品科學概論", question_no: 27, question: "下列何者不是食品添加物的【殺菌劑】？", option_A: "酸化亞硫酸鈉", option_B: "次氯酸", option_C: "鹽酸", option_D: "過氧化氫", correct_answers: "A,B,C", notes: "官方公告：A/B/C 皆給分（114/4/19 第二科）" },
+        { year: 114, date: "2025-04-19", subject: "保健食品概論", question_no: 25, question: "健康食品產品配方依每日建議攝取量，所含之外加精緻糖之限量為何？", option_A: "50 公克", option_B: "25 公克", option_C: "17 公克", option_D: "10 公克", correct_answers: "C", notes: "官方公告：答案更正為(C)（114/4/19 第一科）" },
+        { year: 114, date: "2025-04-19", subject: "保健食品概論", question_no: 76, question: "下列何者不是維生素 B₁₂ 缺乏導致所伴隨之臨床症狀？", option_A: "巨球性貧血", option_B: "同半胱胺酸血症", option_C: "惡性貧血", option_D: "小球性貧血", correct_answers: "A,B,C,D", notes: "官方公告：(A)(B)(C)(D)皆給分（114/4/19 第一科）" },
+        { year: 114, date: "2025-04-19", subject: "食品科學概論", question_no: 1, question: "有關酵素的敘述，下列何者錯誤？", option_A: "可用木瓜蛋白酶軟化次級肉", option_B: "多種酵素可製造高果糖糖漿", option_C: "0.1% 食鹽水可完全抑制酚酶褐變", option_D: "凝乳酶可應用於乳品製成乾酪", correct_answers: "C", notes: "示範題" }
+      ];
+
+      const applyCorrectionsToBank = (bank, corrections) => {
+        const idx = new Map();
+        for (const c of corrections || []) {
+          if (!c || !c.年度 || !c.科目 || !Number.isFinite(Number(c.題號))) continue;
+          const key = `${String(c.年度)}-${c.科目}-${Number(c.題號)}`;
+          idx.set(key, (c.正確答案 || "").replace(/\s/g, ""));
+        }
+        return bank.map((q) => {
+          const key = `${q.year || ""}-${q.subject || ""}-${q.question_no || ""}`;
+          return idx.has(key) ? { ...q, correct_answers: idx.get(key) } : q;
+        });
+      };
+
+      const ensureFileSelected = (file) => !!file;
+
+      function App() {
+        const [bank, setBank] = useState([]);
+        const [subject, setSubject] = useState("全部科目");
+        const [year, setYear] = useState("全部年度");
+        const [mode, setMode] = useState("practice"); // "practice" | "exam"
+        const [limit, setLimit] = useState(40);
+        const [page, setPage] = useState(0);
+        const [answers, setAnswers] = useState({});
+        const [started, setStarted] = useState(false);
+        const [seed, setSeed] = useState(0);
+        const [seconds, setSeconds] = useState(0);
+        const timerRef = useRef(null);
+        const [corrections, setCorrections] = useState([]);
+        const [bankUrl, setBankUrl] = useState("gh:yokuhei-ping/Health-Food-Engineer-Entry@b18caf88dce70271f4e51f25c0931fa0efbbed39:Question_All_corrected.csv");
+        const [corrUrl, setCorrUrl] = useState("https://github.com/PingYangtw/Health-Food-Engineer-Entry/blob/2e123d2ca94719de803cd8766b22256a37630c58/exam_corrections_all_years.csv");
+
+        const runSelfTests = () => {
+          try {
+            const multi = rowToQA({ year: 999, subject: "測試", question_no: 1, question: "測試多解", option_A: "A", option_B: "B", option_C: "C", option_D: "D", correct_answers: "A,B,C" });
+            console.assert(multi.correct_answers.split(",").length === 3, "多解解析應為 3 個");
+            const isRight = (ans) => multi.correct_answers.split(",").includes(ans);
+            console.assert(isRight("A") && isRight("B") && isRight("C"), "A/B/C 應皆為正解");
+            console.assert(!isRight("D"), "D 不應為正解");
+
+            const mapped = rowToQA({ year: 114, subject: "X", question_no: 10, question: "Q", option_A: "1", option_B: "2", option_C: "3", option_D: "4", correct_answers: "D" });
+            console.assert((mapped.options || []).length === 4, "應該有四個選項");
+            console.assert(String(mapped.id).includes("114-X-10"), "ID 組合應包含年/科目/題號");
+
+            const zhRaw = { 年度: "113", 科目: "保健食品概論", 題號: 22, 題目: "QZ", 選項A: "A", 選項B: "B", 選項C: "C", 選項D: "D", 正確答案: "B,D" };
+            const zhn = { ...zhRaw, year: zhRaw["年度"], subject: zhRaw["科目"], question_no: zhRaw["題號"], question: zhRaw["題目"], option_A: zhRaw["選項A"], option_B: zhRaw["選項B"], option_C: zhRaw["選項C"], option_D: zhRaw["選項D"], correct_answers: zhRaw["正確答案"] };
+            const zhQ = rowToQA(zhn);
+            console.assert(String(zhQ.year) === "113" && zhQ.subject === "保健食品概論" && String(zhQ.question_no) === "22", "應支援中文標頭解析");
+
+            const cvs = PapaLib.unparse([{ a: 1, b: 2 }]);
+            console.assert(typeof cvs === "string" && /a,b/.test(cvs), "CSV 轉換應成功");
+
+            const bank0 = [
+              rowToQA({ year: 114, subject: "食品科學概論", question_no: 33, question: "Q1", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
+              rowToQA({ year: 113, subject: "保健食品概論", question_no: 22, question: "Q2", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
+              rowToQA({ year: 114, subject: "食品科學概論", question_no: 99, question: "Q3", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
+            ];
+            const corr = [
+              { 年度: "114", 場次: "第一次", 科目: "食品科學概論", 題號: 33, 正確答案: "C" },
+              { 年度: "113", 場次: "第一次", 科目: "保健食品概論", 題號: 22, 正確答案: "B,D" },
+            ];
+            const bank1 = applyCorrectionsToBank(bank0, corr);
+            const pickOne = (y, s, n) => bank1.find((q) => String(q.year) === String(y) && q.subject === s && String(q.question_no) === String(n));
+            console.assert(pickOne(114, "食品科學概論", 33).correct_answers === "C", "114/食品科學概論/33 應套用 C");
+            console.assert(pickOne(113, "保健食品概論", 22).correct_answers === "B,D", "113/保健食品概論/22 應套用 B,D");
+            console.assert(pickOne(114, "食品科學概論", 99).correct_answers === "A", "未在更正表內的題目不應被修改");
+
+            const bomRow = rowToQA({ "\ufeffyear": "114", 科目: "X", 題號: 1, 題目: "BOM 測試", A: "a", B: "b", C: "c", D: "d", 正確答案: "A" });
+            console.assert(String(bomRow.year) === "114" && String(bomRow.question_no) === "1", "應能處理帶 BOM 的欄位名稱");
+
+            console.assert(ensureFileSelected(undefined) === false, "未選檔案時，檢查應為 false");
+
+            console.log("✅ 自我測試通過");
+            alert("✅ 自我測試通過（詳見 Console）");
+          } catch (e) {
+            console.error("❌ 自我測試失敗", e);
+            alert("❌ 自我測試失敗，請開啟 Console 查看詳情");
+          }
+        };
+
+        useEffect(() => {
+          const saved = deserialize(localStorage.getItem(LS_KEY));
+          if (saved) {
+            setBank(saved.bank || []);
+            setSubject(saved.subject || "全部科目");
+            setYear(saved.year || "全部年度");
+            setMode(saved.mode || "practice");
+          }
+        }, []);
+
+        useEffect(() => {
+          localStorage.setItem(LS_KEY, serialize({ bank, subject, year, mode }));
+        }, [bank, subject, year, mode]);
+
+        const subjects = useMemo(() => {
+          const set = new Set(bank.map((q) => (q.subject || "").toString().trim()));
+          return ["全部科目", ...Array.from(set).filter(Boolean)];
+        }, [bank]);
+
+        const years = useMemo(() => {
+          const set = new Set(bank.map((q) => (q.year ?? "").toString().trim()));
+          const arr = Array.from(set).filter(Boolean).sort((a, b) => Number(b) - Number(a));
+          return ["全部年度", ...arr];
+        }, [bank]);
+
+        const filtered = useMemo(() => {
+          return bank.filter((q) => {
+            const okS = subject === "全部科目" || (q.subject || "").toString().trim() === subject;
+            const okY = year === "全部年度" || (q.year ?? "").toString().trim() === year;
+            return okS && okY;
+          });
+        }, [bank, subject, year]);
+
+        const paper = useMemo(() => {
+          const base = shuffle(filtered.slice());
+          return base.slice(0, Math.min(limit, base.length)).map((q, i) => ({ ...q, order: i + 1 }));
+        }, [filtered, limit, seed]);
+
+        useEffect(() => {
+          if (!started || mode !== "exam") return;
+          timerRef.current = window.setInterval(() => setSeconds((s) => s + 1), 1000);
+          return () => { if (timerRef.current) window.clearInterval(timerRef.current); };
+        }, [started, mode]);
+
+        const start = () => { setAnswers({}); setPage(0); setSeed((s) => s + 1); setSeconds(0); setStarted(true); };
+        const stop = () => { setStarted(false); if (timerRef.current) window.clearInterval(timerRef.current); };
+
+        const current = paper[page];
+        const choose = (qid, key) => setAnswers((prev) => ({ ...prev, [qid]: key }));
+        const isCorrect = (q, user) => {
+          const ok = (q.correct_answers || "").split(",").map((x) => x.trim()).filter(Boolean);
+          return user ? ok.includes(user) : false;
+        };
+
+        const score = useMemo(() => {
+          let right = 0; paper.forEach((q) => { if (isCorrect(q, answers[q.id])) right += 1; });
+          return { right, total: paper.length };
+        }, [paper, answers]);
+
+        const wrongList = useMemo(() => paper.filter((q) => !isCorrect(q, answers[q.id])), [paper, answers]);
+
+        const onImport = (file) => {
+          if (!file) { alert("尚未選擇題庫檔案"); return; }
+          const name = (file.name || "").toLowerCase();
+          if (name.endsWith(".csv")) {
+            PapaLib.parse(file, {
+              header: true,
+              skipEmptyLines: true,
+              complete: (res) => {
+                let ok = 0, skipped = 0;
+                const rows = (res.data || []).map((raw) => {
+                  const base = normalizeKeys(raw);
+                  const r = { ...base };
+                  r.year = r.year ?? r["年度"] ?? r["年份"] ?? r["\ufeffyear"];
+                  r.subject = r.subject ?? r["科目"];
+                  r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"] ?? r["\ufeffquestion_no"];
+                  r.question = r.question ?? r["題目"] ?? r["stem"];
+                  r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
+                  r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
+                  r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
+                  r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
+                  r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
+                  r.notes = r.notes ?? r["備註"];
+                  r.date = r.date ?? r["日期"]; r.session = r.session ?? r["場次"] ?? r["session"];
+                  const qa = rowToQA(r);
+                  if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
+                  ok += 1; return qa;
+                }).filter(Boolean);
+                const dup = countDup(bank, rows);
+                setBank((prev) => mergeBank(prev, rows));
+                alert(`已匯入 ${ok} 題${skipped ? `，略過 ${skipped} 題（缺少 年度/科目/題號）` : ""}；其中 ${dup} 題與既有題目（相同 年度/日期(或場次)/科目/題號）重複，已自動合併`);
+              },
+            });
+            return;
+          }
+          if (name.endsWith(".json")) {
+            const reader = new FileReader();
+            reader.onload = () => {
+              try {
+                const json = JSON.parse(reader.result);
+                const arr = Array.isArray(json) ? json : json.items || [];
+                let ok = 0, skipped = 0;
+                const rows = arr.map((raw) => {
+                  const base = normalizeKeys(raw);
+                  const r = { ...base };
+                  r.year = r.year ?? r["年度"] ?? r["年份"];
+                  r.subject = r.subject ?? r["科目"];
+                  r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"];
+                  r.question = r.question ?? r["題目"] ?? r["stem"];
+                  r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
+                  r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
+                  r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
+                  r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
+                  r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
+                  r.notes = r.notes ?? r["備註"];
+                  r.date = r.date ?? r["日期"];
+                  const qa = rowToQA(r);
+                  if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
+                  ok += 1; return qa;
+                }).filter(Boolean);
+                const dup = countDup(bank, rows);
+                setBank((prev) => mergeBank(prev, rows));
+                alert(`已匯入 ${ok} 題${skipped ? `，略過 ${skipped} 題（缺少 年度/科目/題號）` : ""}；其中 ${dup} 題與既有題目（相同 年度/日期(或場次)/科目/題號）重複，已自動合併`);
+              } catch { alert("JSON 解析失敗"); }
+            };
+            reader.readAsText(file, "utf-8");
+            return;
+          }
+          alert("請上傳 CSV 或 JSON 檔");
+        };
+
+        const onImportCorrections = (file) => {
+          if (!file) { alert("尚未選擇更正/給分表檔案"); return; }
+          PapaLib.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (res) => {
+              try {
+                const rows = (res.data || []).map((raw) => {
+                  const r = normalizeKeys(raw);
+                  return {
+                    年度: String(pick(r, ["年度", "year"]) ?? ""),
+                    場次: String(pick(r, ["場次", "session"]) ?? ""),
+                    科目: String(pick(r, ["科目", "subject"]) ?? ""),
+                    題號: Number(String(pick(r, ["題號", "question_no", "no"]) ?? "").replace(/[^0-9.-]/g, "")),
+                    正確答案: String(pick(r, ["正確答案", "correct_answers"]) ?? ""),
+                  };
+                });
+                const valid = rows.filter((r) => r.年度 && r.科目 && Number.isFinite(r.題號) && r.正確答案);
+                setCorrections(valid);
+                alert(`已匯入更正 ${valid.length} 筆`);
+              } catch (e) { console.error(e); alert("更正 CSV 解析失敗"); }
+            },
+          });
+        };
+
+        const toRawUrl = (u) => {
+          try {
+            if (!u) return "";
+            if (/^gh:/i.test(u)) {
+              const m = u.replace(/^gh:/i, "").match(/^([^\/]+)\/([^@]+)@([^:]+):(.+)$/);
+              if (m) { const [, user, repo, branch, path] = m; return `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${path}`; }
+              return u;
+            }
+            if (/^https?:\/\/github\.com\/.+\/blob\//.test(u)) {
+              return u.replace(/^https?:\/\/github\.com\//, "https://raw.githubusercontent.com/").replace("/blob/", "/");
+            }
+            return u;
+          } catch { return u; }
+        };
+
+        const onImportUrl = (url) => {
+          const u = toRawUrl(url.trim());
+          if (!u) { alert("請輸入題庫網址"); return; }
+          if (/\.csv(?:$|\?)/i.test(u)) {
+            PapaLib.parse(u, {
+              download: true,
+              header: true,
+              skipEmptyLines: true,
+              complete: (res) => {
+                let ok = 0, skipped = 0;
+                const rows = (res.data || []).map((raw) => {
+                  const base = normalizeKeys(raw);
+                  const r = { ...base };
+                  r.year = r.year ?? r["年度"] ?? r["年份"] ?? r["﻿year"];
+                  r.subject = r.subject ?? r["科目"];
+                  r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"] ?? r["﻿question_no"];
+                  r.question = r.question ?? r["題目"] ?? r["stem"];
+                  r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
+                  r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
+                  r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
+                  r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
+                  r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
+                  r.notes = r.notes ?? r["備註"];
+                  r.date = r.date ?? r["日期"];
+                  r.session = r.session ?? r["場次"] ?? r["session"];
+                  const qa = rowToQA(r);
+                  if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
+                  ok += 1; return qa;
+                }).filter(Boolean);
+                const dup = countDup(bank, rows);
+                setBank((prev) => mergeBank(prev, rows));
+                alert(`已從網址匯入 ${ok} 題${skipped ? `，略過 ${skipped} 題（缺少 年度/科目/題號）` : ""}；其中 ${dup} 題與既有題目重複，已自動合併`);
+              },
+              error: () => alert("下載 CSV 失敗，請確認網址可公開存取"),
+            });
+          } else if (/\.json(?:$|\?)/i.test(u)) {
+            fetch(u, { cache: "no-store" })
+              .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+              .then((json) => {
+                const arr = Array.isArray(json) ? json : json.items || [];
+                let ok = 0, skipped = 0;
+                const rows = arr.map((raw) => {
+                  const base = normalizeKeys(raw);
+                  const r = { ...base };
+                  r.year = r.year ?? r["年度"] ?? r["年份"];
+                  r.subject = r.subject ?? r["科目"];
+                  r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"];
+                  r.question = r.question ?? r["題目"] ?? r["stem"];
+                  r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
+                  r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
+                  r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
+                  r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
+                  r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
+                  r.notes = r.notes ?? r["備註"];
+                  r.date = r.date ?? r["日期"];
+                  r.session = r.session ?? r["場次"] ?? r["session"];
+                  const qa = rowToQA(r);
+                  if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
+                  ok += 1; return qa;
+                }).filter(Boolean);
+                const dup = countDup(bank, rows);
+                setBank((prev) => mergeBank(prev, rows));
+                alert(`已從網址匯入 ${ok} 題${skipped ? `，略過 ${skipped} 題（缺少 年度/科目/題號）` : ""}；其中 ${dup} 題與既有題目重複，已自動合併`);
+              })
+              .catch(() => alert("下載 JSON 失敗，請確認網址可公開存取"));
+          } else {
+            alert("請提供 .csv 或 .json 連結（建議使用 GitHub 的 Raw 連結或 gh: 別名）");
+          }
+        };
+
+        // 由網址載入更正/給分表（支援 GitHub blob 連結與 gh: 別名）
+        const onImportCorrectionsUrl = (url) => {
+          const u = toRawUrl(url.trim());
+          if (!u) { alert("請輸入更正/給分表網址"); return; }
+          PapaLib.parse(u, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: (res) => {
+              try {
+                const rows = (res.data || []).map((raw) => {
+                  const r = normalizeKeys(raw);
+                  return {
+                    年度: String(pick(r, ["年度", "year"]) ?? ""),
+                    場次: String(pick(r, ["場次", "session"]) ?? ""),
+                    科目: String(pick(r, ["科目", "subject"]) ?? ""),
+                    題號: Number(String(pick(r, ["題號", "question_no", "no"]) ?? "").replace(/[^0-9.-]/g, "")),
+                    正確答案: String(pick(r, ["正確答案", "correct_answers"]) ?? ""),
+                  };
+                });
+                const valid = rows.filter((r) => r.年度 && r.科目 && Number.isFinite(r.題號) && r.正確答案);
+                setCorrections(valid);
+                alert(`已從網址匯入更正 ${valid.length} 筆`);
+              } catch (e) { console.error(e); alert("更正 CSV 解析失敗"); }
+            },
+            error: () => alert("下載更正 CSV 失敗，請確認網址可公開存取"),
+          });
+        };
+
+        // 一鍵：載入 GitHub 題庫 + 更正表，並自動套用更正
+        const loadGithubDefaults = () => {
+          const defaultBank = bankUrl || "gh:yokuhei-ping/Health-Food-Engineer-Entry@b18caf88dce70271f4e51f25c0931fa0efbbed39:Question_All_corrected.csv";
+          const defaultCorr = corrUrl || "https://github.com/PingYangtw/Health-Food-Engineer-Entry/blob/2e123d2ca94719de803cd8766b22256a37630c58/exam_corrections_all_years.csv";
+          onImportUrl(defaultBank);
+          onImportCorrectionsUrl(defaultCorr);
+          // 等兩個 CSV 下載完成後自動套用更正
+          setTimeout(() => { try { applyCorrections(); } catch (e) {} }, 800);
+        };
+
+        const handleImportChange = (e) => {
+          const file = e.target.files?.[0] ?? null;
+          if (!file) { alert("尚未選擇題庫檔案"); return; }
+          onImport(file);
+          e.target.value = "";
+        };
+        const handleCorrectionsChange = (e) => {
+          const file = e.target.files?.[0] ?? null;
+          if (!file) { alert("尚未選擇更正/給分表檔案"); return; }
+          onImportCorrections(file);
+          e.target.value = "";
+        };
+
+        const applyCorrections = () => {
+          if (!corrections.length) { alert("尚未匯入更正表"); return; }
+          setBank((prev) => {
+            const next = applyCorrectionsToBank(prev, corrections);
+            alert("已將更正套用到題庫（同題覆蓋 correct_answers）");
+            return next;
+          });
+        };
+
+        const mergeBank = (prev, rows) => {
+          const map = new Map(prev.map((q) => [q.id, q]));
+          for (const r of rows) map.set(r.id, r);
+          return Array.from(map.values());
+        };
+
+        const countDup = (prev, rows) => {
+          const set = new Set(prev.map((q) => q.id));
+          let dup = 0; for (const r of rows) if (set.has(r.id)) dup += 1;
+          return dup;
+        };
+
+        const exportWrong = () => {
+          if (!wrongList.length) { alert("目前沒有可匯出的錯題（請先開始作答並產生錯題）"); return; }
+          const rows = wrongList.map((q) => ({
+            year: q.year, subject: q.subject, question_no: q.question_no, question: q.question,
+            option_A: q.option_A, option_B: q.option_B, option_C: q.option_C, option_D: q.option_D,
+            correct_answers: q.correct_answers, notes: q.notes,
+          }));
+          try { exportCSV(rows, "錯題本.csv"); alert(`已匯出 ${rows.length} 題錯題至「錯題本.csv」`); }
+          catch (e) { console.error(e); alert("下載失敗，請檢查瀏覽器下載權限或改用「匯出目前題庫 CSV」"); }
+        };
+
+        const exportAll = () => {
+          const rows = bank.map((q) => ({
+            year: q.year, date: q.date, subject: q.subject, question_no: q.question_no, question: q.question,
+            option_A: q.option_A, option_B: q.option_B, option_C: q.option_C, option_D: q.option_D,
+            correct_answers: q.correct_answers, notes: q.notes,
+          }));
+          exportCSV(rows, "Question_All (1).csv");
+        };
+
+        const loadSamples = () => { const rows = SAMPLE_ROWS.map(rowToQA); setBank((prev) => mergeBank(prev, rows)); alert(`已載入範例 ${rows.length} 題`); };
+
+        const clearBank = () => {
+          const ok = typeof window !== "undefined" && typeof window.confirm === "function" ? window.confirm("確定要清空目前題庫嗎？（將同時刪除本地快取）") : true;
+          if (!ok) return;
+          setBank([]); setAnswers({}); setStarted(false); setPage(0); setSeed((s) => s + 1);
+          try { localStorage.removeItem(LS_KEY); } catch (e) { console.warn("無法存取 localStorage：", e); }
+          alert("題庫與快取已清空");
+        };
+
+        return (
+          <div className="min-h-screen bg-gray-50 text-gray-800 p-6">
+            <header className="max-w-5xl mx-auto mb-4">
+              <h1 className="text-2xl sm:text-3xl font-bold">保健食品初級工程師｜歷屆試題線上練習</h1>
+              <p className="text-sm text-gray-600 mt-1">匯入歷屆 CSV/JSON 題庫 or 從網址載入 → 篩選科目/年度 → 練習/模擬考（支援多答案給分、錯題本與匯出）</p>
+            </header>
+
+            <main className="max-w-5xl mx-auto grid gap-4">
+              <section className="bg-white rounded-2xl shadow p-4 grid gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="text-sm">科目</label>
+                  <select className="border rounded-xl px-3 py-2" value={subject} onChange={(e) => setSubject(e.target.value)}>
+                    {subjects.map((s) => (<option key={s} value={s}>{s}</option>))}
+                  </select>
+
+                  <label className="text-sm ml-2">年度</label>
+                  <select className="border rounded-xl px-3 py-2" value={year} onChange={(e) => setYear(e.target.value)}>
+                    {years.map((y) => (<option key={y} value={y}>{y}</option>))}
+                  </select>
+
+                  <label className="text-sm ml-2">模式</label>
+                  <select className="border rounded-xl px-3 py-2" value={mode} onChange={(e) => setMode(e.target.value)}>
+                    <option value="practice">練習（即時對答案）</option>
+                    <option value="exam">模擬考（交卷後揭曉）</option>
+                  </select>
+
+                  <label className="text-sm ml-2">題數</label>
+                  <input className="border rounded-xl px-3 py-2 w-24" type="number" min={1} max={200} value={limit} onChange={(e) => setLimit(Number(e.target.value || 1))} />
+
+                  <label className="text-sm ml-2">匯入題庫</label>
+                  <input className="border rounded-xl px-3 py-2" type="file" accept=".csv,.json" onChange={handleImportChange} />
+                  <input className="border rounded-xl px-3 py-2 w-64" type="url" placeholder="貼上題庫 CSV/JSON 網址或 gh:別名" value={bankUrl} onChange={(e)=>setBankUrl(e.target.value)} />
+                  <button className="rounded-2xl px-4 py-2 border" onClick={()=>onImportUrl(bankUrl)}>從網址載入</button>
+
+                  <button className="ml-auto rounded-2xl px-4 py-2 bg-gray-900 text-white hover:opacity-90" onClick={start}>開始作答</button>
+                  {started && (<button className="rounded-2xl px-4 py-2 border" onClick={stop}>結束/交卷</button>)}
+                </div>
+                <div className="flex gap-2 flex-wrap text-sm">
+                  <button className="rounded-xl px-3 py-2 border" onClick={exportWrong}>匯出錯題本 CSV</button>
+                  <button className="rounded-xl px-3 py-2 border" onClick={clearBank}>清空題庫</button>
+                </div>
+                <div className="text-sm text-gray-600">目前題庫：{filtered.length} 題（符合篩選）／ 全部 {bank.length} 題</div>
+                <div className="text-xs text-gray-500">唯一鍵：年-日期(或場次)-科目-題號（避免不同場次同題號被合併）</div>
+              </section>
+
+              {started && current && (
+                <section className="bg-white rounded-2xl shadow p-5">
+                  <div className="flex items-start gap-3 flex-wrap">
+                    <div className="text-xs px-2 py-1 rounded-full bg-gray-100">{mode === "exam" ? "模擬考" : "練習"}</div>
+                    <div className="text-xs px-2 py-1 rounded-full bg-gray-100">{current.subject || "—"}</div>
+                    <div className="text-xs px-2 py-1 rounded-full bg-gray-100">{current.year || "—"} 年</div>
+                    <div className="text-xs px-2 py-1 rounded-full bg-gray-100">題號：{current.question_no}</div>
+                    <div className="text-xs px-2 py-1 rounded-full bg-gray-100">第 {page + 1} / {paper.length} 題</div>
+                    {mode === "exam" && <div className="text-xs px-2 py-1 rounded-full bg-gray-100">計時：{fmtTime(seconds)}</div>}
+                  </div>
+
+                  <h2 className="mt-3 text-lg font-semibold leading-relaxed whitespace-pre-wrap">{current.question}</h2>
+
+                  <ul className="mt-4 grid gap-2">
+                    {current.options?.map((op) => {
+                      const picked = answers[current.id] === op.key;
+                      const showAnswer = mode === "practice" && picked;
+                      const correctSet = (current.correct_answers || "").split(",").map((x) => x.trim());
+                      const isRight = correctSet.includes(op.key);
+                      const className = [
+                        "w-full text-left border rounded-xl p-3 hover:bg-gray-50",
+                        picked && showAnswer && (isRight ? "border-green-500 bg-green-50" : "border-red-400 bg-red-50"),
+                      ].join(" ");
+                      return (
+                        <li key={op.key}>
+                          <button className={className} onClick={() => choose(current.id, op.key)}>
+                            <span className="font-mono mr-2">({op.key})</span>
+                            <span className="whitespace-pre-wrap">{op.text || "—"}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+
+                  {mode === "practice" && (
+                    <div className="mt-4 text-sm">
+                      {answers[current.id] ? (
+                        isCorrect(current, answers[current.id]) ? (
+                          <div className="text-green-700">✔ 恭喜答對！可接受答案：{current.correct_answers}</div>
+                        ) : (
+                          <div className="text-red-700">✘ 答錯了，正解：{current.correct_answers}</div>
+                        )
+                      ) : (
+                        <div className="text-gray-500">請選擇一個選項作答</div>
+                      )}
+                      {current.notes && <div className="mt-1 text-gray-600">備註：{current.notes}</div>}
+                    </div>
+                  )}
+
+                  <div className="mt-5 flex gap-2">
+                    <button className="rounded-xl px-4 py-2 border" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>上一題</button>
+                    <button className="rounded-xl px-4 py-2 border" disabled={page >= paper.length - 1} onClick={() => setPage((p) => Math.min(paper.length - 1, p + 1))}>下一題</button>
+                    <button className="rounded-xl px-4 py-2 border ml-auto" onClick={() => setPage(0)}>回到第 1 題</button>
+                  </div>
+                </section>
+              )}
+
+              {started && (
+                <section className="bg-white rounded-2xl shadow p-5 grid gap-3">
+                  <div className="text-sm">作答進度：{Object.keys(answers).length}/{paper.length} 題</div>
+                  <div className="text-lg">目前統計：<span className="font-semibold">{score.right}</span> / {score.total} 題 正確</div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button className="rounded-xl px-4 py-2 bg-gray-900 text-white" onClick={stop}>結束 / 交卷</button>
+                    <button className="rounded-xl px-4 py-2 border" onClick={() => setSeed((s) => s + 1)}>重抽題目</button>
+                    <button className="rounded-xl px-4 py-2 border" onClick={exportWrong}>匯出錯題本 CSV</button>
+                  </div>
+                  {!!wrongList.length && (<div className="text-sm text-gray-600">目前錯題：{wrongList.length} 題（可用上方按鈕匯出 CSV 當錯題本）</div>)}
+                </section>
+              )}
+
+              {!bank.length && (
+                <section className="bg-white rounded-2xl shadow p-6">
+                  <h3 className="text-lg font-semibold mb-2">👋 先載入題庫後開始使用</h3>
+                  <ol className="list-decimal pl-6 space-y-2 text-sm text-gray-700">
+                    <li>點上方 <b>匯入題庫</b>，上傳 CSV 或 JSON。</li>
+                    <li>或點 <b>從網址載入</b> 立即體驗（含多答案皆給分）。</li>
+                    <li>CSV 欄位：<code>year, date, subject, question_no, question, option_A, option_B, option_C, option_D, correct_answers, notes</code></li>
+                    <li>多個可接受答案請以逗號分隔，如 <code>"A,B,C"</code>。</li>
+                  </ol>
+                </section>
+              )}
+            </main>
+
+            <footer className="max-w-5xl mx-auto py-8 text-center text-xs text-gray-400">© 練習原型</footer>
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
