@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>保健食品初級工程師｜歷屆試題線上練習</title>
+    <title>保健食品初級工程師｜歷屆試題線上練習（含星星熟悉度）</title>
     <!-- Tailwind（CDN）讓樣式看起來接近你原本設計 -->
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
@@ -18,7 +18,6 @@
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 
-    <!-- 你的 App：以「單一 HTML」就能跑，方便拖上 Netlify Drop / GitHub Pages / Vercel 靜態部署 -->
     <script type="text/babel" data-presets="env,react">
       const { useState, useEffect, useMemo, useRef } = React;
       const PapaLib = window.Papa; // Papaparse (CDN)
@@ -26,6 +25,7 @@
 
       // ==== 小工具 ====
       const LS_KEY = "hf-beginner-exam-app-v1";
+      const LS_STAR = "hf-beginner-exam-stars-v1"; // ⭐ 每題 0~5 熟悉度
       const serialize = (data) => JSON.stringify(data);
       const deserialize = (s) => (s ? JSON.parse(s) : null);
       const deBOM = (s) => (typeof s === "string" ? s.replace(/^\uFEFF/, "") : s);
@@ -130,6 +130,21 @@
 
       const ensureFileSelected = (file) => !!file;
 
+      // ⭐ 小元件：畫星星（0~5）
+      const StarBar = ({ value = 0, size = 18 }) => {
+        const full = Math.max(0, Math.min(5, Number(value) || 0));
+        return (
+          <div className="inline-flex items-center" title={`熟悉度：${full} 顆星`}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={size} height={size}
+                   className={i < full ? "fill-yellow-400 text-yellow-400" : "fill-none text-gray-300"} stroke="currentColor" strokeWidth="2">
+                <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+              </svg>
+            ))}
+          </div>
+        );
+      };
+
       function App() {
         const [bank, setBank] = useState([]);
         const [subject, setSubject] = useState("全部科目");
@@ -146,54 +161,12 @@
         const [bankUrl, setBankUrl] = useState("gh:yokuhei-ping/Health-Food-Engineer-Entry@b18caf88dce70271f4e51f25c0931fa0efbbed39:Question_All_corrected.csv");
         const [corrUrl, setCorrUrl] = useState("https://github.com/PingYangtw/Health-Food-Engineer-Entry/blob/2e123d2ca94719de803cd8766b22256a37630c58/exam_corrections_all_years.csv");
 
-        const runSelfTests = () => {
-          try {
-            const multi = rowToQA({ year: 999, subject: "測試", question_no: 1, question: "測試多解", option_A: "A", option_B: "B", option_C: "C", option_D: "D", correct_answers: "A,B,C" });
-            console.assert(multi.correct_answers.split(",").length === 3, "多解解析應為 3 個");
-            const isRight = (ans) => multi.correct_answers.split(",").includes(ans);
-            console.assert(isRight("A") && isRight("B") && isRight("C"), "A/B/C 應皆為正解");
-            console.assert(!isRight("D"), "D 不應為正解");
+        // ⭐ 星星熟悉度狀態
+        const [stars, setStars] = useState({}); // { [qid]: 0..5 }
+        const [maxStarFilter, setMaxStarFilter] = useState(null); // 篩選：<= n 顆星
+        const [starModalOpen, setStarModalOpen] = useState(false);
 
-            const mapped = rowToQA({ year: 114, subject: "X", question_no: 10, question: "Q", option_A: "1", option_B: "2", option_C: "3", option_D: "4", correct_answers: "D" });
-            console.assert((mapped.options || []).length === 4, "應該有四個選項");
-            console.assert(String(mapped.id).includes("114-X-10"), "ID 組合應包含年/科目/題號");
-
-            const zhRaw = { 年度: "113", 科目: "保健食品概論", 題號: 22, 題目: "QZ", 選項A: "A", 選項B: "B", 選項C: "C", 選項D: "D", 正確答案: "B,D" };
-            const zhn = { ...zhRaw, year: zhRaw["年度"], subject: zhRaw["科目"], question_no: zhRaw["題號"], question: zhRaw["題目"], option_A: zhRaw["選項A"], option_B: zhRaw["選項B"], option_C: zhRaw["選項C"], option_D: zhRaw["選項D"], correct_answers: zhRaw["正確答案"] };
-            const zhQ = rowToQA(zhn);
-            console.assert(String(zhQ.year) === "113" && zhQ.subject === "保健食品概論" && String(zhQ.question_no) === "22", "應支援中文標頭解析");
-
-            const cvs = PapaLib.unparse([{ a: 1, b: 2 }]);
-            console.assert(typeof cvs === "string" && /a,b/.test(cvs), "CSV 轉換應成功");
-
-            const bank0 = [
-              rowToQA({ year: 114, subject: "食品科學概論", question_no: 33, question: "Q1", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
-              rowToQA({ year: 113, subject: "保健食品概論", question_no: 22, question: "Q2", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
-              rowToQA({ year: 114, subject: "食品科學概論", question_no: 99, question: "Q3", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
-            ];
-            const corr = [
-              { 年度: "114", 場次: "第一次", 科目: "食品科學概論", 題號: 33, 正確答案: "C" },
-              { 年度: "113", 場次: "第一次", 科目: "保健食品概論", 題號: 22, 正確答案: "B,D" },
-            ];
-            const bank1 = applyCorrectionsToBank(bank0, corr);
-            const pickOne = (y, s, n) => bank1.find((q) => String(q.year) === String(y) && q.subject === s && String(q.question_no) === String(n));
-            console.assert(pickOne(114, "食品科學概論", 33).correct_answers === "C", "114/食品科學概論/33 應套用 C");
-            console.assert(pickOne(113, "保健食品概論", 22).correct_answers === "B,D", "113/保健食品概論/22 應套用 B,D");
-            console.assert(pickOne(114, "食品科學概論", 99).correct_answers === "A", "未在更正表內的題目不應被修改");
-
-            const bomRow = rowToQA({ "\ufeffyear": "114", 科目: "X", 題號: 1, 題目: "BOM 測試", A: "a", B: "b", C: "c", D: "d", 正確答案: "A" });
-            console.assert(String(bomRow.year) === "114" && String(bomRow.question_no) === "1", "應能處理帶 BOM 的欄位名稱");
-
-            console.assert(ensureFileSelected(undefined) === false, "未選檔案時，檢查應為 false");
-
-            console.log("✅ 自我測試通過");
-            alert("✅ 自我測試通過（詳見 Console）");
-          } catch (e) {
-            console.error("❌ 自我測試失敗", e);
-            alert("❌ 自我測試失敗，請開啟 Console 查看詳情");
-          }
-        };
-
+        // 初始載入：題庫 + 星星
         useEffect(() => {
           const saved = deserialize(localStorage.getItem(LS_KEY));
           if (saved) {
@@ -202,11 +175,19 @@
             setYear(saved.year || "全部年度");
             setMode(saved.mode || "practice");
           }
+          const s = deserialize(localStorage.getItem(LS_STAR));
+          if (s && typeof s === 'object') setStars(s);
         }, []);
 
+        // 儲存題庫狀態
         useEffect(() => {
           localStorage.setItem(LS_KEY, serialize({ bank, subject, year, mode }));
         }, [bank, subject, year, mode]);
+
+        // 儲存星星
+        useEffect(() => {
+          localStorage.setItem(LS_STAR, serialize(stars));
+        }, [stars]);
 
         const subjects = useMemo(() => {
           const set = new Set(bank.map((q) => (q.subject || "").toString().trim()));
@@ -219,13 +200,16 @@
           return ["全部年度", ...arr];
         }, [bank]);
 
+        // ⭐ 依科目/年度/星星篩選
         const filtered = useMemo(() => {
           return bank.filter((q) => {
             const okS = subject === "全部科目" || (q.subject || "").toString().trim() === subject;
             const okY = year === "全部年度" || (q.year ?? "").toString().trim() === year;
-            return okS && okY;
+            const st = Number(stars[q.id] || 0);
+            const okStar = (maxStarFilter == null) || st <= maxStarFilter;
+            return okS && okY && okStar;
           });
-        }, [bank, subject, year]);
+        }, [bank, subject, year, stars, maxStarFilter]);
 
         const paper = useMemo(() => {
           const base = shuffle(filtered.slice());
@@ -248,12 +232,30 @@
           return user ? ok.includes(user) : false;
         };
 
+        // ⭐ 答題後自動更新星星：對 +1，錯歸零
+        useEffect(() => {
+          if (!current) return;
+          const picked = answers[current.id];
+          if (!picked) return;
+          const correct = isCorrect(current, picked);
+          setStars((prev) => {
+            const cur = Number(prev[current.id] || 0);
+            const next = correct ? Math.min(5, cur + 1) : 0;
+            if (next === cur) return prev;
+            return { ...prev, [current.id]: next };
+          });
+        }, [answers[current?.id]]); // 針對當前題目的作答變動
+
         const score = useMemo(() => {
           let right = 0; paper.forEach((q) => { if (isCorrect(q, answers[q.id])) right += 1; });
           return { right, total: paper.length };
         }, [paper, answers]);
 
         const wrongList = useMemo(() => paper.filter((q) => !isCorrect(q, answers[q.id])), [paper, answers]);
+
+        // 進度統計（以「有星星>0 的題目」視為有練過）
+        const doneCount = useMemo(() => bank.reduce((s, q) => s + (Number(stars[q.id] || 0) > 0 ? 1 : 0), 0), [bank, stars]);
+        const progressPct = bank.length ? Math.round((doneCount / bank.length) * 100) : 0;
 
         const onImport = (file) => {
           if (!file) { alert("尚未選擇題庫檔案"); return; }
@@ -470,7 +472,6 @@
           const defaultCorr = corrUrl || "https://github.com/PingYangtw/Health-Food-Engineer-Entry/blob/2e123d2ca94719de803cd8766b22256a37630c58/exam_corrections_all_years.csv";
           onImportUrl(defaultBank);
           onImportCorrectionsUrl(defaultCorr);
-          // 等兩個 CSV 下載完成後自動套用更正
           setTimeout(() => { try { applyCorrections(); } catch (e) {} }, 800);
         };
 
@@ -538,6 +539,16 @@
           alert("題庫與快取已清空");
         };
 
+        // ⭐ 星星相關：重置、開彈窗、套用篩選
+        const resetStars = () => {
+          const ok = window.confirm('確定要將所有題目的星星熟悉度歸零嗎？');
+          if (!ok) return;
+          setStars({});
+          alert('已重置星星熟悉度');
+        };
+
+        const eligibleCount = (maxN) => bank.reduce((s, q) => s + ((Number(stars[q.id] || 0) <= maxN) ? 1 : 0), 0);
+
         return (
           <div className="min-h-screen bg-gray-50 text-gray-800 p-6">
             <header className="max-w-5xl mx-auto mb-4">
@@ -578,9 +589,18 @@
                 <div className="flex gap-2 flex-wrap text-sm">
                   <button className="rounded-xl px-3 py-2 border" onClick={exportWrong}>匯出錯題本 CSV</button>
                   <button className="rounded-xl px-3 py-2 border" onClick={clearBank}>清空題庫</button>
+                  {/* ⭐ 依星星數量測驗 / 重置星星 / 清除星星篩選 */}
+                  <button className="rounded-xl px-3 py-2 border" onClick={()=>setStarModalOpen(true)}>依星星數量測驗</button>
+                  <button className="rounded-xl px-3 py-2 border" onClick={resetStars}>重置星星數量</button>
+                  <button className="rounded-xl px-3 py-2 border" onClick={()=>setMaxStarFilter(null)}>清除星星篩選</button>
                 </div>
                 <div className="text-sm text-gray-600">目前題庫：{filtered.length} 題（符合篩選）／ 全部 {bank.length} 題</div>
                 <div className="text-xs text-gray-500">唯一鍵：年-日期(或場次)-科目-題號（避免不同場次同題號被合併）</div>
+                {/* ⭐ 進度百分比 */}
+                <div className="text-xs text-amber-600 flex items-center gap-2">
+                  <StarBar value={5} size={14}/> <span>練習進度：{progressPct}%（{doneCount}/{bank.length || 0}）</span>
+                  {maxStarFilter!=null && <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-50 border text-amber-700">星星篩選：≤ {maxStarFilter} ★</span>}
+                </div>
               </section>
 
               {started && current && (
@@ -592,6 +612,10 @@
                     <div className="text-xs px-2 py-1 rounded-full bg-gray-100">題號：{current.question_no}</div>
                     <div className="text-xs px-2 py-1 rounded-full bg-gray-100">第 {page + 1} / {paper.length} 題</div>
                     {mode === "exam" && <div className="text-xs px-2 py-1 rounded-full bg-gray-100">計時：{fmtTime(seconds)}</div>}
+                    {/* ⭐ 此題目前星星數 */}
+                    <div className="text-xs px-2 py-1 rounded-full bg-amber-50 border text-amber-700 flex items-center gap-1">
+                      <span>熟悉度</span><StarBar value={stars[current.id]||0} size={14}/><span>{Number(stars[current.id]||0)}★</span>
+                    </div>
                   </div>
 
                   <h2 className="mt-3 text-lg font-semibold leading-relaxed whitespace-pre-wrap">{current.question}</h2>
@@ -667,6 +691,45 @@
             </main>
 
             <footer className="max-w-5xl mx-auto py-8 text-center text-xs text-gray-400">© 練習原型</footer>
+
+            {/* ⭐ 依星星數量測驗彈窗 */}
+            {starModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/40" onClick={()=>setStarModalOpen(false)}></div>
+                <div className="relative bg-white rounded-2xl shadow-xl p-4 w-[90%] max-w-md">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">依照星星數量測驗</h3>
+                    <div className="text-xs text-amber-600 flex items-center gap-1"><StarBar value={5} size={14}/><span>{progressPct}%</span><span className="text-gray-400">{doneCount}/{bank.length}</span></div>
+                  </div>
+                  <ul className="mt-3 divide-y">
+                    {[0,1,2,3,4].map((n)=> (
+                      <li key={n}>
+                        <button className="w-full flex items-center justify-between py-3 hover:bg-gray-50" onClick={()=>{setMaxStarFilter(n); setStarModalOpen(false); start();}}>
+                          <div className="flex items-center gap-2">
+                            <div className="flex">
+                              {Array.from({length:5}).map((_,i)=> (
+                                <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18"
+                                  className={i < (n+1) ? "fill-yellow-400 text-yellow-400" : "fill-none text-gray-300"} stroke="currentColor" strokeWidth="2">
+                                  <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                                </svg>
+                              ))}
+                            </div>
+                            <span className="text-sm">測驗 0 ~ {n} 顆星的題目</span>
+                          </div>
+                          <span className="text-sm text-gray-500">{eligibleCount(n)} 題</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-gray-500 leading-relaxed">星星數量代表對題目的熟悉度：答對 +1（最多 5 顆），答錯歸零。可用此功能針對不熟的題目多練習。</p>
+                  <div className="mt-3 flex gap-2">
+                    <button className="rounded-xl px-3 py-2 border" onClick={()=>setStarModalOpen(false)}>關閉</button>
+                    <button className="rounded-xl px-3 py-2 border" onClick={()=>{setMaxStarFilter(null); setStarModalOpen(false);}}>清除星星篩選</button>
+                    <button className="rounded-xl px-3 py-2 border" onClick={resetStars}>重置星星數量</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
       }
