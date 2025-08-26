@@ -342,6 +342,10 @@
             <button className={`px-3 py-1 ${mode==='practice'?'bg-blue-600 text-white':'bg-white'}`} onClick={()=>setMode('practice')}>練習模式</button>
             <button className={`px-3 py-1 ${mode==='exam'?'bg-blue-600 text-white':'bg-white'}`} onClick={()=>setMode('exam')}>模擬測驗</button>
           </div>
+       {/* 題庫統計 */}
+          <div className="mb-3 text-sm text-gray-600">
+            目前題庫：{filtered.length} 題（符合篩選）／ 全部 {bank.length} 題
+          </div>
 
           {/* 年度/科目 */}
           <select className="border rounded px-2 py-1" value={year} onChange={e=>setYear(e.target.value)}>
