@@ -109,9 +109,6 @@ const resolveGhUrl = (s) => {
 };
 
 
-// ✅ 換題只看邊界，不看作答與正誤
-const goPrev = () => setPage(p => (p > 0 ? p - 1 : 0));
-const goNext = () => setPage(p => (p < paper.length - 1 ? p + 1 : p));
 
 
      
@@ -151,7 +148,8 @@ const goNext = () => setPage(p => (p < paper.length - 1 ? p + 1 : p));
     const [maxStarFilter,setMaxStarFilter]=useState(null); // null=全部；0..5 = ≤N
 
     // 題庫載入（本機 or URL）
-    const [csvUrl,setCsvUrl]=useState("https://github.com/yokuhei-ping/Health-Food-Engineer-Entry/blob/a78fb8a07dae9892724fbf116ebe795e8351ce96/Question_All_0826.csv");
+    const [csvUrl, setCsvUrl] = useState("gh:yokuhei-ping/Health-Food-Engineer-Entry@b18caf88dce70271f4e51f25c0931fa0efbbed39:Question_All_corrected.csv");
+
     const bootLoadedRef=useRef(false);
 
     // ---- 初始化 / 持久化 ----
@@ -211,15 +209,16 @@ const goNext = () => setPage(p => (p < paper.length - 1 ? p + 1 : p));
       const okStar = (maxStarFilter==null) || st<=maxStarFilter;
       return okS && okY && okStar;
     }),[bank,subject,year,stars,maxStarFilter]);
-
-    const paper=useMemo(()=>{
-      if(started && Array.isArray(frozenPaperIds) && frozenPaperIds.length){
-        const byId=new Map(bank.map(q=>[q.id,q]));
-        return frozenPaperIds.map((id,i)=>byId.get(id)).filter(Boolean).map((q,i)=>({...q,order:i+1}));
-      }
-      const base=shuffle(filtered.slice());
-      return base.slice(0,Math.min(limit,base.length)).map((q,i)=>({...q,order:i+1}));
-    },[bank,filtered,limit,started,frozenPaperIds,seed]);
+      
+      const paper = useMemo(() => {
+        if (started && Array.isArray(frozenPaperIds) && frozenPaperIds.length) {
+          const byId = new Map(bank.map(q => [q.id, q]));
+          return frozenPaperIds.map(id => byId.get(id)).filter(Boolean);
+        }
+        const base = shuffle(filtered.slice());
+        return base.slice(0, Math.min(limit, base.length));
+      }, [bank, filtered, limit, started, frozenPaperIds, seed]);
+      
 
     // ---- 計時（模擬測驗）----
     useEffect(()=>{
@@ -233,18 +232,19 @@ const goNext = () => setPage(p => (p < paper.length - 1 ? p + 1 : p));
     const choose=(qid,key)=>setAnswers(prev=>({...prev,[qid]:key}));
     const correctSetOf=(q)=> (q.correct_answers||"").split(",").map(x=>x.trim()).filter(Boolean);
     const isCorrect=(q,user)=> user ? correctSetOf(q).includes(user) : false;
-
-    useEffect(()=>{
-      if(!current) return;
-      const picked=answers[current.id]; if(!picked) return;
-      const correct=isCorrect(current,picked);
-      setStars(prev=>{
-        const cur=Number(prev[current.id]||0);
-        const next=correct? Math.min(5,cur+1): 0;
-        if(next===cur) return prev;
-        return {...prev,[current.id]:next};
+    const currentId = current?.id;
+    const pickedForCurrent = currentId ? answers[currentId] : undefined;
+    
+    useEffect(() => {
+      if (!currentId || !pickedForCurrent) return;
+      const correct = isCorrect(current, pickedForCurrent);
+      setStars(prev => {
+        const cur  = Number(prev[currentId] || 0);
+        const next = correct ? Math.min(5, cur + 1) : 0;
+        return next === cur ? prev : { ...prev, [currentId]: next };
       });
-    },[current,answers]);
+    }, [currentId, pickedForCurrent]);
+
     // ✅ 當 paper 長度變化時，自動把 page 夾在合法範圍內
     useEffect(() => {
       setPage(p => {
@@ -321,24 +321,26 @@ const goNext = () => setPage(p => (p < paper.length - 1 ? p + 1 : p));
         error:(e)=>alert("匯入失敗："+e.message)
       });
     };
-    async function loadFromUrl(urlStr){
-      try{
-        const url=resolveGhUrl((urlStr||csvUrl).trim());
-        const resp=await fetch(url);
-        const text=await resp.text();
-        Papa.parse(text,{
-          header:true, skipEmptyLines:true,
-          complete:(res)=>{
-            const rows=res.data||[];
-            const items=rows.map(rowToQA).filter(x=>x.id && x.question);
-            setBank(items);
-          },
-          error:(e)=>alert("解析失敗："+e.message)
-        });
-      }catch(err){
-        alert("下載失敗："+(err?.message||err));
-      }
+      async function loadFromUrl(urlStr){
+    try{
+      const url = resolveGhUrl((urlStr || csvUrl).trim());
+      const resp = await fetch(url, { cache: "no-store" });
+      if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+      const text = await resp.text();
+      Papa.parse(text,{
+        header:true, skipEmptyLines:true,
+        complete:(res)=>{
+          const rows  = res.data || [];
+          const items = rows.map(rowToQA).filter(x=>x.id && x.question);
+          setBank(items);
+        },
+        error:(e)=>alert("解析失敗："+e.message)
+      });
+    }catch(err){
+      alert("下載失敗："+(err?.message||err));
     }
+  }
+
 
     // ---- UI ----
     const correctColor=(picked,isRight)=> {
