@@ -75,19 +75,46 @@
     return { id,year,date,subject,question_no,question,option_A,option_B,option_C,option_D,options,correct_answers,notes };
   };
 
-  // gh:owner/repo@ref:path → raw URL
-  const resolveGhUrl=(s)=>{
-    if(!s) return s;
-    if(s.startsWith("gh:")){
-      const body=s.slice(3);
-      const [repoPart, path] = body.split(":");
-      const [ownerRepo, ref] = repoPart.split("@");
-      const [owner, repo] = ownerRepo.split("/");
-      return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${encodeURI(path)}`;
-    }
-    return s;
-  };
+// gh:owner/repo@ref:path 或 github.com/.../blob/... → raw 下載連結
+const resolveGhUrl = (s) => {
+  if (!s) return s;
 
+  // 支援 gh: 短網址
+  if (s.startsWith("gh:")) {
+    const body = s.slice(3);
+    const [repoPart, path] = body.split(":");
+    const [ownerRepo, ref] = repoPart.split("@");
+    const [owner, repo] = ownerRepo.split("/");
+    return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${encodeURI(path)}`;
+  }
+
+  // 支援 github.com 的 blob 頁面
+  try {
+    const u = new URL(s);
+    if (u.hostname === "github.com") {
+      // /owner/repo/blob/ref/path/...
+      const parts = u.pathname.split("/").filter(Boolean);
+      const idx = parts.indexOf("blob");
+      if (idx >= 2) {
+        const owner = parts[0];
+        const repo  = parts[1];
+        const ref   = parts[idx + 1];
+        const path  = parts.slice(idx + 2).join("/");
+        return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`;
+      }
+    }
+  } catch (_) {}
+
+  return s;
+};
+
+
+// ✅ 換題只看邊界，不看作答與正誤
+const goPrev = () => setPage(p => (p > 0 ? p - 1 : 0));
+const goNext = () => setPage(p => (p < paper.length - 1 ? p + 1 : p));
+
+
+     
   const StarBar=({value=0,size=18})=>{
     const full=Math.max(0,Math.min(5,Number(value)||0));
     return (
@@ -218,6 +245,13 @@
         return {...prev,[current.id]:next};
       });
     },[current,answers]);
+    // ✅ 當 paper 長度變化時，自動把 page 夾在合法範圍內
+    useEffect(() => {
+      setPage(p => {
+        if (!paper.length) return 0;
+        return Math.min(Math.max(p, 0), paper.length - 1);
+      });
+    }, [paper.length]);
 
     // ---- 統計 ----
     const score=useMemo(()=>{
@@ -312,6 +346,9 @@
         ? (picked ? (isRight ? "bg-green-50 border-green-400" : "bg-red-50 border-red-400") : "")
         : (picked ? "bg-blue-50 border-blue-400" : "");
     };
+    // ✅ 換題只看邊界，不受答對/答錯影響
+    const goPrev = () => setPage(p => (p > 0 ? p - 1 : 0));
+    const goNext = () => setPage(p => (p < paper.length - 1 ? p + 1 : p));
 
     return (
       <div className="p-6">
@@ -453,10 +490,25 @@
               })}
             </ul>
 
-            <div className="mt-2 flex gap-2">
-              <button className="border rounded px-3 py-1" disabled={page===0} onClick={()=>setPage(p=>p-1)}>上一題</button>
-              <button className="border rounded px-3 py-1" disabled={page>=paper.length-1} onClick={()=>setPage(p=>p+1)}>下一題</button>
+                       <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                className="border rounded px-3 py-1"
+                disabled={page === 0}
+                onClick={goPrev}
+              >
+                上一題
+              </button>
+              <button
+                type="button"
+                className="border rounded px-3 py-1"
+                disabled={page >= paper.length - 1}
+                onClick={goNext}
+              >
+                下一題
+              </button>
             </div>
+
 
             {mode==="practice" && answers[paper[page].id] && (
               <div className="mt-3 border-t pt-3 text-sm">
