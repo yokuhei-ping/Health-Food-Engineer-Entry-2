@@ -402,10 +402,7 @@
               <div>第 {page+1}/{paper.length} 題</div>
               <StarBar value={Number(stars[paper[page].id]||0)} />
             </div>
-           <div className="text-sm mb-2 flex items-center justify-between">
-  <div>第 {page+1}/{paper.length} 題</div>
-  <StarBar value={Number(stars[paper[page].id]||0)} />
-</div>
+         
 
 {/* 🆕 題目中繼資料列：科目／年度／題號 */}
 <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -432,7 +429,7 @@
   )}
 </div>
 
-<h2 className="mb-3">{paper[page].question}</h2>
+
 
             <h2 className="mb-3">{paper[page].question}</h2>
 
