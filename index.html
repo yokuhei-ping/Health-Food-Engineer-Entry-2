@@ -124,7 +124,7 @@
     const [maxStarFilter,setMaxStarFilter]=useState(null); // null=全部；0..5 = ≤N
 
     // 題庫載入（本機 or URL）
-    const [csvUrl,setCsvUrl]=useState("gh:yokuhei-ping/Health-Food-Engineer-Entry@7fc1f72d802168d8dbd3f0fc904ddef9e3e23e61:Question_All_0826.csv");
+    const [csvUrl,setCsvUrl]=useState("https://github.com/yokuhei-ping/Health-Food-Engineer-Entry/blob/a78fb8a07dae9892724fbf116ebe795e8351ce96/Question_All_0826.csv");
     const bootLoadedRef=useRef(false);
 
     // ---- 初始化 / 持久化 ----
