@@ -17,7 +17,7 @@
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 
-    <script type="text/babel" data-presets="env,react">
+   <script type="text/babel" data-presets="env,react">
   const { useState, useEffect, useMemo, useRef } = React;
 
   const LS_KEY  = "hf-beginner-exam-app-v1";
@@ -75,6 +75,19 @@
     return { id,year,date,subject,question_no,question,option_A,option_B,option_C,option_D,options,correct_answers,notes };
   };
 
+  // gh:owner/repo@ref:path → raw URL
+  const resolveGhUrl=(s)=>{
+    if(!s) return s;
+    if(s.startsWith("gh:")){
+      const body=s.slice(3);
+      const [repoPart, path] = body.split(":");
+      const [ownerRepo, ref] = repoPart.split("@");
+      const [owner, repo] = ownerRepo.split("/");
+      return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${encodeURI(path)}`;
+    }
+    return s;
+  };
+
   const StarBar=({value=0,size=18})=>{
     const full=Math.max(0,Math.min(5,Number(value)||0));
     return (
@@ -111,7 +124,8 @@
     const [maxStarFilter,setMaxStarFilter]=useState(null); // null=全部；0..5 = ≤N
 
     // 題庫載入（本機 or URL）
-    const [csvUrl,setCsvUrl]=useState("");
+    const [csvUrl,setCsvUrl]=useState("gh:yokuhei-ping/Health-Food-Engineer-Entry@b18caf88dce70271f4e51f25c0931fa0efbbed39:Question_All_corrected.csv");
+    const bootLoadedRef=useRef(false);
 
     // ---- 初始化 / 持久化 ----
     useEffect(()=>{
@@ -137,6 +151,15 @@
         if(run.maxStarFilter!=null) setMaxStarFilter(run.maxStarFilter);
       }
     },[]);
+
+    // 如果一開始 bank 為空，嘗試用預設 URL 載入一次
+    useEffect(()=>{
+      if(bootLoadedRef.current) return;
+      if(bank.length===0 && csvUrl){
+        bootLoadedRef.current=true;
+        loadFromUrl(csvUrl);
+      }
+    },[bank.length,csvUrl]);
 
     useEffect(()=>{ localStorage.setItem(LS_KEY, serialize({bank,subject,year,mode})); },[bank,subject,year,mode]);
     useEffect(()=>{ localStorage.setItem(LS_STAR, serialize(stars)); },[stars]);
@@ -216,6 +239,41 @@
     };
     const stop=()=>{ setStarted(false); if(timerRef.current) clearInterval(timerRef.current); };
 
+    // ---- 匯出錯題本 CSV ----
+    const exportWrongCsv=()=>{
+      // 以目前作答紀錄為準（本次考卷或歷次留存的 answers）
+      const byId=new Map(bank.map(q=>[q.id,q]));
+      const rows=[];
+      for(const [qid,ua] of Object.entries(answers||{})){
+        const q=byId.get(qid);
+        if(!q || !ua) continue;
+        const ok=correctSetOf(q);
+        const isRight=ok.includes(ua);
+        if(isRight) continue; // 只收錯題
+        rows.push({
+          year: q.year, subject: q.subject, question_no: q.question_no,
+          question: q.question, option_A: q.option_A, option_B: q.option_B,
+          option_C: q.option_C, option_D: q.option_D,
+          correct_answers: q.correct_answers, user_answer: ua,
+          notes: q.notes ?? ""
+        });
+      }
+      if(rows.length===0){ alert("目前沒有錯題可以匯出～ (๑•̀ㅂ•́)و✧"); return; }
+      const csv = Papa.unparse(rows);
+      const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
+      saveAs(blob, "wrong_notes.csv");
+    };
+
+    // ---- 清空題庫（僅清 bank）----
+    const clearBank=()=>{
+      if(!confirm("確定清空題庫？（僅刪除題庫內容，其他狀態保留）")) return;
+      setBank([]);
+      // 額外把凍結考卷解除，避免殘留引用
+      setFrozenPaperIds(null);
+      setStarted(false);
+      setPage(0);
+    };
+
     // ---- 載入 CSV ----
     const loadFromFile=(file)=>{
       if(!file) return;
@@ -229,9 +287,10 @@
         error:(e)=>alert("匯入失敗："+e.message)
       });
     };
-    const loadFromUrl=async ()=>{
+    async function loadFromUrl(urlStr){
       try{
-        const resp=await fetch(csvUrl);
+        const url=resolveGhUrl((urlStr||csvUrl).trim());
+        const resp=await fetch(url);
         const text=await resp.text();
         Papa.parse(text,{
           header:true, skipEmptyLines:true,
@@ -245,11 +304,10 @@
       }catch(err){
         alert("下載失敗："+(err?.message||err));
       }
-    };
+    }
 
     // ---- UI ----
     const correctColor=(picked,isRight)=> {
-      // 練習模式：作答後顯示正誤；模擬模式：只標示被選中
       return (mode==="practice")
         ? (picked ? (isRight ? "bg-green-50 border-green-400" : "bg-red-50 border-red-400") : "")
         : (picked ? "bg-blue-50 border-blue-400" : "");
@@ -269,9 +327,9 @@
                 <input type="file" accept=".csv" className="ml-2" onChange={e=>loadFromFile(e.target.files[0])}/>
               </label>
               <div className="flex gap-2 items-center">
-                <input className="border rounded px-2 py-1 w-80" placeholder="貼上 CSV 連結（含標頭）"
+                <input className="border rounded px-2 py-1 w-96" placeholder="貼上 CSV 連結（可用 gh: 短網址）"
                        value={csvUrl} onChange={e=>setCsvUrl(e.target.value)} />
-                <button className="border rounded px-3 py-1" onClick={loadFromUrl}>從連結載入</button>
+                <button className="border rounded px-3 py-1" onClick={()=>loadFromUrl(csvUrl)}>從連結載入</button>
               </div>
             </div>
           </div>
@@ -310,6 +368,10 @@
               </button>
             ))}
           </div>
+
+          {/* 功能：匯出錯題本、清空題庫 */}
+          <button className="border rounded px-3 py-1" onClick={exportWrongCsv}>匯出錯題本 CSV</button>
+          <button className="border rounded px-3 py-1" onClick={clearBank}>清空題庫</button>
 
           {/* 開始/結束 */}
           <div className="ml-auto">
@@ -400,6 +462,7 @@
   const root = ReactDOM.createRoot(document.getElementById("root"));
   root.render(<App/>);
 </script>
+
 
   </body>
 </html>
