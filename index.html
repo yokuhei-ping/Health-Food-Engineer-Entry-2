@@ -307,7 +307,17 @@ const resolveGhUrl = (s) => {
       setStarted(false);
       setPage(0);
     };
+    // ---- 重置星星數量（清空熟悉度）----
+    const resetStars = () => {
+      if (!confirm("確定要重置所有題目的星星數量嗎？\n（將清空熟悉度紀錄）")) return;
+      setStars({});
+      localStorage.removeItem(LS_STAR); // 同步清掉持久化
+      // 可選：同時把星星篩選改回「全部」
+      setMaxStarFilter(null);
+    };
 
+
+    
     // ---- 載入 CSV ----
     const loadFromFile=(file)=>{
       if(!file) return;
@@ -412,6 +422,11 @@ const resolveGhUrl = (s) => {
             ))}
           </div>
 
+          <button className="border rounded px-3 py-1" onClick={resetStars}>
+            重置星星數量
+          </button>
+
+          
           {/* 功能：匯出錯題本、清空題庫 */}
           <button className="border rounded px-3 py-1" onClick={exportWrongCsv}>匯出錯題本 CSV</button>
           <button className="border rounded px-3 py-1" onClick={clearBank}>清空題庫</button>
